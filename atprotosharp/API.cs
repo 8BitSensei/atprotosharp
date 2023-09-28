@@ -41,22 +41,20 @@ public class Api
     public async Task<ServerDescription?> GetServerParameters()
     {
         var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.DescribeServer);
-        if (result.success) 
+        if (!result.success) 
+            return null;
+        
+        try
         {
-            try
-            {
-                result = JObject.Parse(result.responseBody);
-                result.serverUrl = _serverUrl;
-                result.success = true;
-                return result;
-            }
-            catch (Exception ex)
-            {
-                throw new ATProtocolException("Unable to parse DescribeServer response", ex);
-            }
+            result = JObject.Parse(result.responseBody);
+            result.serverUrl = _serverUrl;
+            result.success = true;
+            return result;
         }
-
-        return null;
+        catch (Exception ex)
+        {
+            throw new ATProtocolException("Unable to parse DescribeServer response", ex);
+        }
     }
 
     /// <summary>
@@ -67,18 +65,17 @@ public class Api
     public async Task<string?> LoginAsync(string username, string password)
     {
         //TODO Plain text seems like a bad idea
-        if (_session == null)
-        {
-            // Storing the ssesion we've made when connecting to the server, so that we can make subsequent requests
-            _session = await CreateSession(username, password);
-            if (!(bool)_session.success)
-            {
-                var message = _session.error;
-                _session = null;
-                return message;
-            }
-        }
-        return null;
+        if (_session != null) 
+            return null;
+        
+        // Storing the session we've made when connecting to the server, so that we can make subsequent requests
+        _session = await CreateSession(username, password);
+        if ((bool)_session.success) 
+            return null;
+        
+        var message = _session.error;
+        _session = null;
+        return message;
     }
 
     /// <summary>
@@ -97,21 +94,19 @@ public class Api
     public async Task<Session?> GetSession()
     {
         var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetSession, AutorizationHeader());
-        if (result.success)
-        {
-            try
-            {
-                result = JObject.Parse(result.responseBody);
-                result.success = true;
-                return result;
-            }
-            catch (Exception ex)
-            {
-                throw new ATProtocolException("Unable to parse GetSession response", ex);
-            }
-        }
+        if (!result.success) 
+            return null;
         
-        return null;
+        try
+        {
+            result = JObject.Parse(result.responseBody);
+            result.success = true;
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
+        }
     }
 
     /// <summary>
@@ -122,21 +117,19 @@ public class Api
     public async Task<Profile?> GetProfileByDid(string did)
     {
         var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetProfile + "?actor=" + did, AutorizationHeader());
-        if (result.success)
+        if (!result.success) 
+            return null;
+        
+        try
         {
-            try
-            {
-                result = JObject.Parse(result.responseBody);
-                result.success = true;
-                return result;
-            }
-            catch (Exception ex)
-            {
-                throw new ATProtocolException("Unable to parse GetProfile response", ex);
-            }
+            result = JObject.Parse(result.responseBody);
+            result.success = true;
+            return result;
         }
-
-        return null;
+        catch (Exception ex)
+        {
+            throw new ATProtocolException("Unable to parse GetProfile response", ex);
+        }
     }
 
     /// <summary>
