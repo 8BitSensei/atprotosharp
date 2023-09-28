@@ -1,14 +1,13 @@
-﻿using System.Dynamic;
-using System.Net.Http.Headers;
-using System.Text;
-using atprotosharp.Exceptions;
+﻿using atprotosharp.Exceptions;
 using atprotosharp.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using static System.Net.WebRequestMethods;
+using System.Dynamic;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace atprotosharp;
-public class API
+public class Api
 {
     private string _serverUrl;
     private readonly IHttpRequestHandler _httpClient;
@@ -108,7 +107,7 @@ public class API
             }
             catch (Exception ex)
             {
-                throw new ATProtocolException("Unale to parse GetSession response", ex);
+                throw new ATProtocolException("Unable to parse GetSession response", ex);
             }
         }
         
@@ -119,16 +118,25 @@ public class API
     /// Get a user account by did
     /// </summary>
     /// <param name="did">the did for the profile you want to get. ex did:pfc:whatever43</param>
-    /// <returns>UserProfile model containt the detials for that user</returns>
-    public async Task<dynamic> GetProfileByDid(string did)
+    /// <returns>UserProfile model contain the details for that user</returns>
+    public async Task<Profile?> GetProfileByDid(string did)
     {
         var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetProfile + "?actor=" + did, AutorizationHeader());
         if (result.success)
         {
-            result = JObject.Parse(result.responseBody);
-            result.success = true;
+            try
+            {
+                result = JObject.Parse(result.responseBody);
+                result.success = true;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw new ATProtocolException("Unable to parse GetProfile response", ex);
+            }
         }
-        return result;
+
+        return null;
     }
 
     /// <summary>
