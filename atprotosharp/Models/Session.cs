@@ -1,13 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
+﻿using System.Text.Json.Serialization;
 
 namespace atprotosharp.Models
 {
-    public class Session
+    public struct Session
     {
         [JsonPropertyName("handle")]
         public string? Handle { get; set; }
@@ -17,5 +12,10 @@ namespace atprotosharp.Models
 
         [JsonPropertyName("email")]
         public string? Email { get; set; }
+
+        [JsonPropertyName("accessJwt")]
+        public string? AccessJwt { get; set; }
+
+        public bool Success { get; set; }
     }
 }

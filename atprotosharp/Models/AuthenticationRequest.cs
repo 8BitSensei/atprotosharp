@@ -1,7 +1,11 @@
+using System.Text.Json.Serialization;
+
 namespace atprotosharp;
 
 public class AuthenticationRequest
 {
-    public string? identifier { get; set; }
-    public string? password { get; set; }
+    [JsonPropertyName("identifier")]
+    public string? Identifier { get; set; }
+    [JsonPropertyName("password")]
+    public string? Password { get; set; }
 }

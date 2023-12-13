@@ -1,17 +1,17 @@
 ﻿using atprotosharp.Exceptions;
 using atprotosharp.Models;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Dynamic;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 
 namespace atprotosharp;
-public class Api
+public class ATProtoClient
 {
-    private string _serverUrl;
-    private readonly IHttpRequestHandler _httpClient;
-    private dynamic? _session;
+    private readonly string _serverUrl;
+    private readonly HttpClient _httpClient;
+    private Session? _session;
 
     #region Constructor
 
@@ -20,17 +20,11 @@ public class Api
     /// </summary>
     /// <param name="httpClient">Use your own custom HTTPRest Client... if you wish... dunno why you'd do that tho...</param>
     /// <param name="serverUrl">The base url of the server you wish to connect to. Default: https://bsky.social</param>
-    public API(IHttpRequestHandler httpClient, string serverUrl = Constants.DefaultServerUrl)
+    public ATProtoClient(IHttpClientFactory httpClientFactory, string serverUrl = Constants.DefaultServerUrl)
     {
-        _httpClient = httpClient;
+        _httpClient = httpClientFactory.CreateClient();
         _serverUrl = serverUrl;
     }
-
-    /// <summary>
-    /// Instantiate the API, connected to the server of your choice. By default connects to the BlueSky server
-    /// </summary>
-    /// <param name="serverUrl">The base url of the server you wish to connect to. Default: https://bsky.social</param>
-    public API(string serverUrl = Constants.DefaultServerUrl) : this(new HttpRequestHandler(), serverUrl) { }
 
     #endregion
 
@@ -41,9 +35,9 @@ public class Api
     public async Task<ServerDescription?> GetServerParameters()
     {
         var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.DescribeServer);
-        if (!result.success) 
+        if (!result.success)
             return null;
-        
+
         try
         {
             result = JObject.Parse(result.responseBody);
@@ -62,45 +56,31 @@ public class Api
     /// </summary>
     /// <param name="username">your username</param>
     /// <param name="password">your password</param>
-    public async Task<string?> LoginAsync(string username, string password)
+    public async Task<bool> LoginAsync(string username, string password)
     {
-        //TODO Plain text seems like a bad idea
-        if (_session != null) 
-            return null;
-        
-        // Storing the session we've made when connecting to the server, so that we can make subsequent requests
         _session = await CreateSession(username, password);
-        if ((bool)_session.success) 
-            return null;
-        
-        var message = _session.error;
-        _session = null;
-        return message;
-    }
+        if (_session is null)
+            return false;
 
-    /// <summary>
-    /// Disconnect from the current session
-    /// </summary>
-    /// <returns>Null if success. Errors if errors</returns>
-    public void Logout()
-    {
-        _session = null;
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _session?.AccessJwt);
+
+        return true;
     }
 
     /// <summary>
     /// Returns the session object for your provided account after authentication. If no authentication this should throw an error
     /// </summary>
     /// <returns>AuthenticationResponse object with the information for your particular session</returns>
-    public async Task<Session?> GetSession()
+    public async Task<Session?> GetSession(CancellationToken cancellationToken = default)
     {
-        var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetSession, AutorizationHeader());
-        if (!result.success) 
+        using var response = await _httpClient.GetAsync(_serverUrl + Constants.Endpoints.GetSession, cancellationToken);
+        if (!response.IsSuccessStatusCode)
             return null;
-        
+
         try
         {
-            result = JObject.Parse(result.responseBody);
-            result.success = true;
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var result = await JsonSerializer.DeserializeAsync<Session>(stream, cancellationToken: cancellationToken);
             return result;
         }
         catch (Exception ex)
@@ -114,21 +94,21 @@ public class Api
     /// </summary>
     /// <param name="did">the did for the profile you want to get. ex did:pfc:whatever43</param>
     /// <returns>UserProfile model contain the details for that user</returns>
-    public async Task<Profile?> GetProfileByDid(string did)
+    public async Task<Profile?> GetProfileByDid(string did, CancellationToken cancellationToken = default)
     {
-        var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetProfile + "?actor=" + did, AutorizationHeader());
-        if (!result.success) 
+        var response = await _httpClient.GetAsync(_serverUrl + Constants.Endpoints.GetProfile + "?actor=" + did, cancellationToken);
+        if (!response.IsSuccessStatusCode)
             return null;
-        
+
         try
         {
-            result = JObject.Parse(result.responseBody);
-            result.success = true;
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var result = await JsonSerializer.DeserializeAsync<Profile>(stream, cancellationToken: cancellationToken);
             return result;
         }
         catch (Exception ex)
         {
-            throw new ATProtocolException("Unable to parse GetProfile response", ex);
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
         }
     }
 
@@ -138,26 +118,28 @@ public class Api
     /// <param name="algorithm">The order of the timeline. Possible: reverse-chronological</param>
     /// <param name="limit">How many posts to get. Default limit is 30</param>
     /// <returns>A dynamic ExpandoObject with whatever the server gives us.</returns>
-    public async Task<dynamic> GetTimeline(string algorithm, int limit = 30)
+    public async Task<Timeline?> GetTimeline(string algorithm, int limit = 30, CancellationToken cancellationToken = default)
     {
-        var result = GenerateResult(false, "You need to be logged in in order to conduct this operation. Type \"login\" in the terminal");
+        var requestUrl = new StringBuilder($"{_serverUrl}{Constants.Endpoints.GetTimeline}?");
+        if (!string.IsNullOrEmpty(algorithm))
+            requestUrl.Append($"algorithm={algorithm}&");
 
-        if (AutorizationHeader() == null)
+        requestUrl.Append($"limit={limit}");
+
+        using var response = await  _httpClient.GetAsync(requestUrl.ToString(), cancellationToken);
+        if (response.IsSuccessStatusCode)
+            return null;
+
+        try 
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var result = await JsonSerializer.DeserializeAsync<Timeline>(stream, cancellationToken: cancellationToken);
             return result;
-
-        var requestUrl = _serverUrl + Constants.Endpoints.GetTimeline + "?";
-        if (!string.IsNullOrWhiteSpace(algorithm))
-            requestUrl += "algorithm=" + algorithm + "&";
-        requestUrl += "limit=" + limit.ToString();
-
-        result = await _httpClient.HttpGetAsync(requestUrl, AutorizationHeader());
-
-        if (!result.success)
-            return result;
-
-        result = JObject.Parse(result.responseBody);
-        result.success = true;
-        return result;
+        }
+        catch (Exception ex) 
+        {
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
+        }
     }
 
     /// <summary>
@@ -168,7 +150,9 @@ public class Api
     /// <returns>A dynamic ExpandoObject with whatever the server gives us.</returns>    
     public async Task<dynamic> CreatePost(string postText, params string[] filePaths)
     {
-        var result = GenerateResult(false, "You need to be logged in in order to conduct this operation. Type \"login\" in the terminal");
+        throw new NotImplementedException();
+
+        /*var result = GenerateResult(false, "You need to be logged in in order to conduct this operation. Type \"login\" in the terminal");
 
         if (AutorizationHeader() == null)
             return result;
@@ -241,7 +225,7 @@ public class Api
             return result;
         result = JObject.Parse(result.responseBody);
         result.success = true;
-        return result;
+        return result;*/
 
         /* FOR REPLIES LATER
         if (your condition for adding reply)
@@ -299,45 +283,50 @@ public class Api
     /// </summary>
     /// <param name="filePath">The path to the file to upload</param>
     /// <returns>A body with the ID / path of the file in the storage cont</returns>
-    public async Task<dynamic> UploadMedia(string filePath)
+    public async Task<dynamic?> UploadMedia(string filePath, CancellationToken cancellationToken = default)
     {
-        var result = GenerateResult(false, "You need to be logged in in order to conduct this operation. Type \"login\" in the terminal");
+        if (!File.Exists(filePath))
+            throw new ATProtocolException("Unable to parse GetSession response");
 
-        if (AutorizationHeader() == null)
-            return result;
-
-        if (!System.IO.File.Exists(filePath))
+        try
         {
-            result.error = "File does not exist";
+            using var file = File.OpenRead(filePath);
+            using var content = new StreamContent(file);
+            content.Headers.ContentType = new MediaTypeHeaderValue(MimeTypes.GetMimeType(filePath));
+            using var response = await _httpClient.PostAsync(_serverUrl + Constants.Endpoints.UploadBlob, content, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var result = await JsonSerializer.DeserializeAsync<dynamic>(stream, cancellationToken: cancellationToken);
             return result;
         }
-
-        var file = System.IO.File.OpenRead(filePath);
-        var content = new StreamContent(file);
-        content.Headers.ContentType = new MediaTypeHeaderValue(MimeTypes.GetMimeType(filePath));
-        result = await _httpClient.HttpPostAsync(_serverUrl + Constants.Endpoints.UploadBlob, content, AutorizationHeader());
-
-        if (!result.success)
+        catch (Exception ex) 
         {
-            return result;
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
         }
-        result = JObject.Parse(result.responseBody);
-        result.success = true;
-        return result;
     }
 
     /// <summary>
     /// Gets all the invite codes availabile to the signed-in account
     /// </summary>
     /// <returns>AccountInviteCodesResult mode containing all the invite codes (used, unused, and if used by which did)</returns>
-    public async Task<dynamic> GetAccountInviteCodes()
+    public async Task<List<InviteCode>?> GetAccountInviteCodes(CancellationToken cancellationToken = default)
     {
-        var result = await _httpClient.HttpGetAsync(_serverUrl + Constants.Endpoints.GetAccountInviteCodes, AutorizationHeader());
-        if (!result.success)
+        using var response = await _httpClient.GetAsync(_serverUrl + Constants.Endpoints.GetAccountInviteCodes, cancellationToken: cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        try 
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            var result = await JsonSerializer.DeserializeAsync<List<InviteCode>>(stream, cancellationToken: cancellationToken);
             return result;
-        result = JObject.Parse(result.responseBody);
-        result.success = true;
-        return result;
+        } 
+        catch (Exception ex) 
+        {
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
+        }
     }
 
     /// <summary>
@@ -346,20 +335,7 @@ public class Api
     /// <returns>The handle of the account you're signed in as. Returns null if not signed in.</returns>
     public string? GetMyHandle()
     {
-        return _session?.handle;
-    }
-
-    /// <summary>
-    /// Points the API at a different server. This will log you out.
-    /// </summary>
-    /// <param name="url">The URL of the server to point to. Does not allow http. Https only!</param>
-    public (bool success, string? error) SwitchServer(string url)
-    {
-        Logout();
-        if (url.StartsWith("http://"))
-            return (false, "Only https:// is allowed. http:// not permitted");
-        _serverUrl = url;
-        return (true, null);
+        return _session?.Handle;
     }
 
     #region Privates
@@ -369,26 +345,28 @@ public class Api
     /// <param name="identifier">your username</param>
     /// <param name="password">your password</param>
     /// <returns>The response to your authentication attempt</returns>
-    private async Task<dynamic> CreateSession(string identifier, string password)
+    private async Task<Session?> CreateSession(string identifier, string password, CancellationToken cancellationToken = default)
     {
-        var requestPayload = new AuthenticationRequest()
+        var requestPayload = JsonSerializer.Serialize(new AuthenticationRequest()
         {
-            identifier = identifier,
-            password = password
-        };
+            Identifier = identifier,
+            Password = password
+        });
 
-        var result = GenerateResult(false);
-        var response = await _httpClient.HttpPostAsync(
-            _serverUrl + Constants.Endpoints.CreateSession,
-            new StringContent(JsonConvert.SerializeObject(requestPayload), Encoding.UTF8, "application/json")
-            );
-        if (!response.success)
+        using var response = await _httpClient.PostAsync(_serverUrl + Constants.Endpoints.CreateSession, new StringContent(requestPayload, Encoding.UTF8, "application/json"), cancellationToken: cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        try 
         {
-            return response;
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            var result = await JsonSerializer.DeserializeAsync<Session>(stream, cancellationToken: cancellationToken);
+            return result;
         }
-        result = JObject.Parse(response.responseBody);
-        result.success = true;
-        return result;
+        catch (Exception ex) 
+        {
+            throw new ATProtocolException("Unable to parse GetSession response", ex);
+        }
     }
 
     /// <summary>
@@ -401,21 +379,6 @@ public class Api
         if (error != null)
             result.error = error;
         return result;
-    }
-
-    /// <summary>
-    /// Creates the authorization header for the HTTP client
-    /// </summary>
-    /// <returns>A dictionary containing the authorization header</returns>
-    private Dictionary<string, string>? AutorizationHeader()
-    {
-        if (string.IsNullOrWhiteSpace(_session?.accessJwt?.ToString()))
-            return null;
-        return new Dictionary<string, string>()
-            {
-                {"Authorization", "Bearer "+_session.accessJwt}
-            };
-
     }
 
     #endregion

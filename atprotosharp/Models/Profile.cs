@@ -4,35 +4,35 @@ namespace atprotosharp.Models
 {
     public class Profile
     {
-        [JsonPropertyName("Did")]
+        [JsonPropertyName("did")]
         public string? Did { get; set; }
-        [JsonPropertyName("Handle")]
+        [JsonPropertyName("handle")]
         public string? Handle { get; set; }
-        [JsonPropertyName("DisplayName")]
+        [JsonPropertyName("displayName")]
         public string? DisplayName { get; set; }
-        [JsonPropertyName("Avatar")]
+        [JsonPropertyName("avatar")]
         public string? Avatar { get; set; }
-        [JsonPropertyName("Banner")]
+        [JsonPropertyName("banner")]
         public string? Banner { get; set; }
-        [JsonPropertyName("FollowsCount")]
+        [JsonPropertyName("followsCount")]
         public int FollowsCount { get; set; }
-        [JsonPropertyName("FollowersCount")]
+        [JsonPropertyName("followersCount")]
         public int FollowersCount { get; set; }
-        [JsonPropertyName("PostsCount")]
+        [JsonPropertyName("postsCount")]
         public int PostsCount { get; set; }
-        [JsonPropertyName("IndexedAt")]
+        [JsonPropertyName("indexedAt")]
         public string? IndexedAt { get; set; }
-        [JsonPropertyName("Viewer")]
+        [JsonPropertyName("viewer")]
         public Viewer? Viewer { get; set; }
-        [JsonPropertyName("Labels")]
+        [JsonPropertyName("labels")]
         public List<string>? Labels { get; set; }
     }
 
-    public class Viewer
+    public struct Viewer
     {
-        [JsonPropertyName("Muted")]
+        [JsonPropertyName("muted")]
         public bool Muted { get; set; }
-        [JsonPropertyName("BlockedBy")]
+        [JsonPropertyName("blockedBy")]
         public bool BlockedBy { get; set; }
     }
 }
